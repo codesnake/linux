@@ -97,6 +97,7 @@
 #endif
 
 //#define CONFIG_CONCURRENT_MODE	// Set from Makefile
+#undef CONFIG_CONCURRENT_MODE
 #ifdef CONFIG_CONCURRENT_MODE
 	//#define CONFIG_HWPORT_SWAP				// Port0->Sec , Port1 -> Pri
 	#define CONFIG_RUNTIME_PORT_SWITCH
