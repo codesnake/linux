@@ -43,6 +43,11 @@
 			reg = <0x0 0x10000000 0x0 0x200000>;
 			no-map;
 		};
+		secos_reserved:linux,secos {
+			compatible = "amlogic, secos_memory";
+			reg = <0x0 0x05300000 0x0 0x2000000>;
+			no-map;
+		};
 		pstore:aml_pstore {
 			compatible = "amlogic, pstore";
 			reg = <0x0 0x20000000 0x0 0x100000>;
@@ -430,7 +435,7 @@
             ocr_avail = <0x200080>;          /**VDD voltage 3.3 ~ 3.4 */
             caps = "MMC_CAP_8_BIT_DATA","MMC_CAP_MMC_HIGHSPEED",
 			"MMC_CAP_SD_HIGHSPEED", "MMC_CAP_NONREMOVABLE","MMC_CAP_1_8V_DDR",
-			"MMC_CAP_HW_RESET", "MMC_CAP_ERASE";
+			"MMC_CAP_HW_RESET", "MMC_CAP_ERASE", "MMC_CAP_CMD23";
             caps2 = "MMC_CAP2_HS200";
 			f_min = <300000>;
             f_max = <200000000>;
@@ -465,7 +470,30 @@
 				card_type = <3>;  /*3:sdio device(ie:sdio-wifi), 4:SD combo (IO+mem) card, */
 		};
 	};
+	nand{
+		compatible = "amlogic, aml_nand";
+		dev_name = "nand";
+		status = "ok";
+		reg = <0x0 0xd0074800 0x0 0x200>;
+		interrupts = <	0 34 1 >;
+		pinctrl-names = "nand_rb_mod","nand_norb_mod", "nand_cs_pins_only";
+		pinctrl-0 = <&conf_nand_pulldown &conf_nand_pullup &all_nand_pins>;
+		pinctrl-1 = <&conf_nand_pulldown &conf_nand_pullup &all_nand_pins>;
+		pinctrl-2 = <&nand_cs_pins>;
+		device_id = <0>;
+		plat-names = "nandnormal";
+		plat-num = <1>;
+		plat-part-0 = <&normal>;
+		normal: normal{
+			enable_pad ="ce0","ce1","ce2","ce3";
+			busy_pad = "rb0";
+		};
+	};
+	aml_nftl{
+		compatible = "amlogic, nftl";
+		/* config nftl here */
 
+	};
 	/*aml_cams{
 		compatible = "amlogic, cams_prober";
 		status = "okay";
@@ -694,6 +722,7 @@
 	i2c_gpio: i2c_gpio {
 		compatible = "i2c-gpio";
 		dev_name = "i2c-gpio";
+		i2c-gpio,delay-us = <10>; /* 50 kHz */
 		gpios = <&gpio GPIOH_1 0
 		&gpio GPIOH_2 0>;
 		#address-cells = <2>;
@@ -746,6 +775,7 @@
 
 	dwc2_b {
 		compatible = "amlogic,dwc2";
+		device_name = "dwc2_b";
 		reg = <0x0 0xc9100000 0x0 0x40000>;
 		interrupts = <0 31 4>;
 		status = "okay";
@@ -773,6 +803,7 @@
 
 	dwc2_a {
 		compatible = "amlogic,dwc2";
+		device_name = "dwc2_a";
 		reg = <0x0 0xc9000000 0x0 0x40000>;
 		interrupts = <0 30 4>;
 		status = "okay";
@@ -919,7 +950,7 @@
 	amlogic_thermals:amlogic_thermals{
 		compatible = "amlogic, amlogic-thermal";
 		#thermal-cells = <7>;
-		dev_name = "aml_thermal";
+		device_name = "thermal";
 		trip_point = <70 1536001 1536001  511  511    3    2
 			      80 1296001 1296001  435  435    2    1
 			      90 1032001 1032001  328  328    2    1

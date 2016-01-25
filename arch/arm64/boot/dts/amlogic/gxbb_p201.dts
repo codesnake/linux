@@ -43,7 +43,11 @@
 			reg = <0x0 0x10000000 0x0 0x200000>;
 			no-map;
 		};
-
+		secos_reserved:linux,secos {
+			compatible = "amlogic, secos_memory";
+			reg = <0x0 0x05300000 0x0 0x2000000>;
+			no-map;
+		};
 		pstore:aml_pstore {
 			compatible = "amlogic, pstore";
 			reg = <0x0 0x20000000 0x0 0x100000>;
@@ -343,10 +347,17 @@
 		status = "okay";
 		interrupt_pin = <&gpio       GPIOX_7       GPIO_ACTIVE_HIGH>;
 		interrupts = <	0 68 4>;
-		irq_trigger_type = "GPIO_IRQ_HIGH";
-		power_on_pin = <&gpio       GPIOX_20       GPIO_ACTIVE_HIGH>;
+		irq_trigger_type = "GPIO_IRQ_LOW";
+		power_on_pin = <&gpio       GPIOX_6       GPIO_ACTIVE_HIGH>;
+		dhd_static_buf;
 		pinctrl-names = "wifi_32k_pins";
 		pinctrl-0 = <&wifi_32k_pins>;
+	};
+	wifi_power{
+		compatible = "amlogic, wifi_power";
+		dev_name = "wifi_power";
+		status = "okay";
+		power_gpio =  <&gpio       GPIOX_6       GPIO_ACTIVE_HIGH>;
 	};
     sd{
         compatible = "amlogic, aml_sd_emmc";
@@ -383,6 +394,32 @@
 	   		irq_in = <3>;
 	   		irq_out = <5>;
 	   		card_type = <5>; /* 0:unknown, 1:mmc card(include eMMC), 2:sd card(include tSD), 3:sdio device(ie:sdio-wifi), 4:SD combo (IO+mem) card, 5:NON sdio device(means sd/mmc card), other:reserved */
+		};
+    };
+	emmc{
+        compatible = "amlogic, aml_sd_emmc";
+        dev_name = "aml_newsd.0";
+        status = "okay";
+        reg = <0x0 0xd0074000 0x0 0x2000>;
+        interrupts = <	0 218 1>;
+        pinctrl-names = "emmc_clk_cmd_pins", "emmc_all_pins";
+        pinctrl-0 = <&emmc_clk_cmd_pins>;
+        pinctrl-1 = <&emmc_all_pins>;
+        emmc{
+            status = "okay";
+            pinname = "emmc";
+            ocr_avail = <0x200080>;          /**VDD voltage 3.3 ~ 3.4 */
+            caps = "MMC_CAP_8_BIT_DATA","MMC_CAP_MMC_HIGHSPEED",
+			"MMC_CAP_SD_HIGHSPEED", "MMC_CAP_NONREMOVABLE","MMC_CAP_1_8V_DDR",
+			"MMC_CAP_HW_RESET", "MMC_CAP_ERASE", "MMC_CAP_CMD23";
+            caps2 = "MMC_CAP2_HS200";
+			f_min = <300000>;
+            f_max = <200000000>;
+            max_req_size = <0x20000>;          /**256KB*/
+//            gpio_dat3 = "BOOT_3"
+		gpio_dat3 = <&gpio       BOOT_3      GPIO_ACTIVE_HIGH>;
+		hw_reset =  <&gpio       BOOT_9      GPIO_ACTIVE_HIGH>;
+            card_type = <1>; /* 1:mmc card(include eMMC), 2:sd card(include tSD), */
 		};
     };
 	sdio{
@@ -427,6 +464,11 @@
 			enable_pad ="ce0","ce1","ce2","ce3";
 			busy_pad = "rb0";
 		};
+	};
+	aml_nftl{
+		compatible = "amlogic, nftl";
+		/* config nftl here */
+
 	};
 	partitions: partitions{
         parts = <11>;
@@ -618,6 +660,7 @@
 	i2c_gpio: i2c_gpio {
 		compatible = "i2c-gpio";
 		dev_name = "i2c-gpio";
+		i2c-gpio,delay-us = <10>; /* 50 kHz */
 		gpios = <&gpio GPIOH_1 0
 		&gpio GPIOH_2 0>;
 		#address-cells = <2>;
@@ -670,6 +713,7 @@
 
 	dwc2_b {
 		compatible = "amlogic,dwc2";
+		device_name = "dwc2_b";
 		reg = <0x0 0xc9100000 0x0 0x40000>;
 		interrupts = <0 31 4>;
 		status = "okay";
@@ -697,6 +741,7 @@
 
 	dwc2_a {
 		compatible = "amlogic,dwc2";
+		device_name = "dwc2_a";
 		reg = <0x0 0xc9000000 0x0 0x40000>;
 		interrupts = <0 30 4>;
 		status = "okay";
@@ -843,7 +888,7 @@
 	amlogic_thermals:amlogic_thermals{
 		compatible = "amlogic, amlogic-thermal";
 		#thermal-cells = <7>;
-		dev_name = "aml_thermal";
+		device_name = "thermal";
 		trip_point = <70 1536001 1536001  511  511    3    2
 			      80 1296001 1296001  435  435    2    1
 			      90 1032001 1032001  328  328    2    1
@@ -853,6 +898,7 @@
 		keep_mode;
 		keep_mode_threshold = <85>;
 		keep_mode_max_range = <2016000 666 4 3>;
+		keep_mode_min_range = <500     400 1 2>;
 	};
 	gpio_keypad{
 	    compatible = "amlogic, gpio_keypad";

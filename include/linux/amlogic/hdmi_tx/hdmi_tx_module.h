@@ -247,12 +247,11 @@ struct hdmitx_dev {
 #define DDC_RESET_EDID          (CMD_DDC_OFFSET + 0x00)
 #define DDC_RESET_HDCP          (CMD_DDC_OFFSET + 0x01)
 #define DDC_HDCP_OP             (CMD_DDC_OFFSET + 0x02)
-#define HDCP_ON		0x1
-#define HDCP_OFF	0x2
-	#define HDCP14_ON	HDCP_ON
-	#define HDCP14_OFF	HDCP_OFF
-#define HDCP22_ON	0x3
-#define HDCP22_OFF	0x4
+	#define HDCP14_ON	0x1
+	#define HDCP14_OFF	0x2
+	#define HDCP22_ON	0x3
+	#define HDCP22_OFF	0x4
+#define DDC_HDCP_BYP		(CMD_DDC_OFFSET + 0x03)
 #define DDC_IS_HDCP_ON          (CMD_DDC_OFFSET + 0x04)
 #define DDC_HDCP_GET_AKSV       (CMD_DDC_OFFSET + 0x05)
 #define DDC_HDCP_GET_BKSV       (CMD_DDC_OFFSET + 0x06)
@@ -314,6 +313,7 @@ struct hdmitx_dev {
 	#define SET_AVMUTE	0x2
 #define MISC_HPLL_FAKE			(CMD_MISC_OFFSET + 0x0c)
 #define MISC_ESM_RESET		(CMD_MISC_OFFSET + 0x0d)
+#define MISC_HDCP_CLKDIS	(CMD_MISC_OFFSET + 0x0e)
 
 /***********************************************************************
  *                          Get State //GetState
@@ -346,6 +346,7 @@ struct hdmitx_dev {
  *    hdmitx protocol level interface
  **********************************************************************/
 extern void hdmitx_init_parameters(struct hdmitx_info *info);
+extern enum hdmi_vic hdmitx_edid_vic_tab_map_vic(const char *disp_mode);
 
 extern int hdmitx_edid_parse(struct hdmitx_dev *hdmitx_device);
 

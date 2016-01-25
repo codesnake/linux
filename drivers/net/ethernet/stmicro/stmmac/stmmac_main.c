@@ -2332,7 +2332,6 @@ dma_desc_error:
 	if (priv->phydev)
 		phy_disconnect(priv->phydev);
 phy_error:
-	clk_disable_unprepare(priv->stmmac_clk);
 
 	return ret;
 }

@@ -48,6 +48,7 @@
 #include <linux/amlogic/canvas/canvas_mgr.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-contiguous.h>
+#include <linux/switch.h>
 
 #include "amports_priv.h"
 
@@ -120,6 +121,10 @@ struct platform_resource_s {
 static int debugflags;
 static int output_fps;
 static u32 omx_pts;
+static int omx_pts_interval_upper = 11000;
+static int omx_pts_interval_lower = -5500;
+
+
 bool omx_secret_mode = false;
 #define DEBUG_FLAG_FFPLAY	(1<<0)
 #define DEBUG_FLAG_CALC_PTS_INC	(1<<1)
@@ -391,6 +396,11 @@ static int video2_onoff_state = VIDEO_ENABLE_STATE_IDLE;
 
 #endif
 /*********************************************************/
+static struct switch_dev video1_state_sdev = {
+/* android video layer switch device */
+	.name = "video_layer1",
+};
+
 
 #define VOUT_TYPE_TOP_FIELD 0
 #define VOUT_TYPE_BOT_FIELD 1
@@ -662,6 +672,11 @@ static u32 zoom_end_x_lines;
 static u32 zoom_start_y_lines;
 static u32 zoom_end_y_lines;
 
+static u32 ori_start_x_lines;
+static u32 ori_end_x_lines;
+static u32 ori_start_y_lines;
+static u32 ori_end_y_lines;
+
 /* wide settings */
 static u32 wide_setting;
 
@@ -765,6 +780,8 @@ static wait_queue_head_t amvideo_trick_wait;
 #define VPU_DELAYWORK_MEM_POWER_OFF_VD1  2
 #define VPU_DELAYWORK_MEM_POWER_OFF_VD2  4
 #define VPU_DELAYWORK_MEM_POWER_OFF_PROT 8
+#define VPU_VIDEO_LAYER1_CHANGED		16
+
 #define VPU_MEM_POWEROFF_DELAY           100
 static struct work_struct vpu_delay_work;
 static int vpu_clk_level;
@@ -1776,9 +1793,15 @@ static void zoom_display_horz(int hscale)
 			     1) >> hscale) << VD1_FMT_CHROMA_WIDTH_BIT));
 
 	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXBB) {
-		int l_aligned = round_down(zoom_start_x_lines, 32);
-		int r_aligned = round_up(zoom_end_x_lines, 32);
-
+		int l_aligned;
+		int r_aligned;
+		if (zoom_start_x_lines > 0) {
+			l_aligned = round_down(ori_start_x_lines, 32);
+			r_aligned = round_up(ori_end_x_lines, 32);
+		} else {
+			l_aligned = round_down(zoom_start_x_lines, 32);
+			r_aligned = round_up(zoom_end_x_lines, 32);
+		}
 		VSYNC_WR_MPEG_REG(AFBC_VD_CFMT_W,
 			  ((r_aligned - l_aligned) << 16) |
 			  (r_aligned / 2 - l_aligned / 2));
@@ -1786,6 +1809,7 @@ static void zoom_display_horz(int hscale)
 		VSYNC_WR_MPEG_REG(AFBC_MIF_HOR_SCOPE,
 			  ((l_aligned / 32) << 16) |
 			  ((r_aligned / 32) - 1));
+
 
 		VSYNC_WR_MPEG_REG(AFBC_PIXEL_HOR_SCOPE,
 			  ((zoom_start_x_lines - l_aligned) << 16) |
@@ -1891,8 +1915,15 @@ static void zoom_display_vert(void)
 	}
 
 	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXBB) {
-		int t_aligned = round_down(zoom_start_y_lines, 4);
-		int b_aligned = round_up(zoom_end_y_lines, 4);
+		int t_aligned;
+		int b_aligned;
+		if (zoom_start_y_lines > 0) {
+			t_aligned = round_down(zoom_start_y_lines, 32);
+			b_aligned = round_up(zoom_end_y_lines, 32);
+		} else {
+			t_aligned = round_down(zoom_start_y_lines, 32);
+			b_aligned = round_up(zoom_end_y_lines, 32);
+		}
 
 		VSYNC_WR_MPEG_REG(AFBC_VD_CFMT_H,
 		    b_aligned - t_aligned);
@@ -1962,6 +1993,10 @@ static void vsync_toggle_frame(struct vframe_s *vf)
 	u32 first_picture = 0;
 	unsigned long flags;
 	frame_count++;
+	ori_start_x_lines = 0;
+	ori_end_x_lines = vf->width - 1;
+	ori_start_y_lines = 0;
+	ori_end_y_lines = vf->height - 1;
 	if (debug_flag & DEBUG_FLAG_PRINT_TOGGLE_FRAME)
 		pr_info("%s()\n", __func__);
 
@@ -3336,11 +3371,12 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 	}
 	if (omx_secret_mode == true) {
 		u32 system_time = timestamp_pcrscr_get();
-		int diff = omx_pts - system_time;
-		if (diff > 11000 || diff < -11000) {
+		int diff = system_time - omx_pts;
+		if ((diff - omx_pts_interval_upper) > 0
+			|| (diff - omx_pts_interval_lower) < 0) {
 			timestamp_pcrscr_enable(1);
-			/* pr_info("system_time=%d,omx_pts=%d,
-			diff=%d\n",system_time,omx_pts,diff); */
+			/*pr_info("system_time=%d, omx_pts=%d, diff=%d\n",
+			system_time, omx_pts, diff);*/
 			timestamp_pcrscr_set(omx_pts);
 		}
 	} else
@@ -3443,7 +3479,12 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 					u32 cur_index =
 					    READ_VCBUS_REG(VD1_IF0_CANVAS0 +
 							   cur_dev->viu_off);
-					cur_dispbuf->canvas0Addr = cur_index;
+					if (!((get_cpu_type() >=
+						MESON_CPU_MAJOR_ID_GXBB) &&
+						(cur_dispbuf->type &
+						  VIDTYPE_COMPRESS)))
+						cur_dispbuf->canvas0Addr
+							= cur_index;
 				}
 				vsync_toggle_frame(cur_dispbuf);
 			} else
@@ -3625,11 +3666,15 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 
 		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_GXBB) {
 			if (cur_dispbuf->type & VIDTYPE_COMPRESS) {
-				SET_VCBUS_REG_MASK(VIU_MISC_CTRL0,
-				    VIU_MISC_AFBC_VD1);
+				/*SET_VCBUS_REG_MASK(VIU_MISC_CTRL0,
+				    VIU_MISC_AFBC_VD1);*/
+				VSYNC_WR_MPEG_REG_BITS(VIU_MISC_CTRL0 +
+					cur_dev->viu_off, 1, 20, 1);
 			} else {
-				CLEAR_VCBUS_REG_MASK(VIU_MISC_CTRL0,
-				    VIU_MISC_AFBC_VD1);
+				/*CLEAR_VCBUS_REG_MASK(VIU_MISC_CTRL0,
+				    VIU_MISC_AFBC_VD1);*/
+				VSYNC_WR_MPEG_REG_BITS(VIU_MISC_CTRL0 +
+					cur_dev->viu_off, 0, 20, 1);
 			}
 		}
 
@@ -3958,7 +4003,13 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
  exit:
 	vpp_misc_save = READ_VCBUS_REG(VPP_MISC + cur_dev->vpp_off);
 	vpp_misc_set = vpp_misc_save;
-
+	if ((video_enabled == 1) && ((vpp_misc_save & VPP_VD1_POSTBLEND) == 0)
+	&& (video_onoff_state == VIDEO_ENABLE_STATE_IDLE)) {
+		SET_VCBUS_REG_MASK(VPP_MISC + cur_dev->vpp_off,
+				VPP_VD1_PREBLEND | VPP_VD1_POSTBLEND
+				   | VPP_POSTBLEND_EN);
+		pr_info("should never happen, rdma fail!");
+	}
 	if (likely(video_onoff_state != VIDEO_ENABLE_STATE_IDLE)) {
 		/* state change for video layer enable/disable */
 
@@ -3983,6 +4034,8 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 
 			if (debug_flag & DEBUG_FLAG_BLACKOUT)
 				pr_info("VsyncEnableVideoLayer\n");
+			vpu_delay_work_flag |=
+				VPU_VIDEO_LAYER1_CHANGED;
 		} else if (video_onoff_state == VIDEO_ENABLE_STATE_OFF_REQ) {
 			/* #if MESON_CPU_TYPE >= MESON_CPU_TYPE_MESON8 */
 			if ((get_cpu_type() >= MESON_CPU_MAJOR_ID_M8)
@@ -4016,7 +4069,8 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 			}
 			/* #endif */
 			video_onoff_state = VIDEO_ENABLE_STATE_IDLE;
-
+			vpu_delay_work_flag |=
+				VPU_VIDEO_LAYER1_CHANGED;
 			if (debug_flag & DEBUG_FLAG_BLACKOUT)
 				pr_info("VsyncDisableVideoLayer\n");
 		}
@@ -4084,9 +4138,10 @@ static irqreturn_t vsync_isr(int irq, void *dev_id)
 		spin_unlock_irqrestore(&video2_onoff_lock, flags);
 	}
 
-	if (vpp_misc_save != vpp_misc_set)
+	if (vpp_misc_save != vpp_misc_set) {
 		VSYNC_WR_MPEG_REG(VPP_MISC + cur_dev->vpp_off,
 			vpp_misc_set);
+	}
 
 #ifdef CONFIG_VSYNC_RDMA
 	cur_rdma_buf = cur_dispbuf;
@@ -4177,13 +4232,15 @@ static int free_alloced_keep_buffer(void)
 
 static int alloc_keep_buffer(void)
 {
-	int flags = CODEC_MM_FLAGS_DMA;
+	int flags = CODEC_MM_FLAGS_DMA |
+		CODEC_MM_FLAGS_FOR_VDECODER;
 #ifndef CONFIG_GE2D_KEEP_FRAME
 	/*
 		if not used ge2d.
 		need CPU access.
 	*/
-	flags = CODEC_MM_FLAGS_DMA_CPU;
+	flags = CODEC_MM_FLAGS_DMA_CPU |
+	CODEC_MM_FLAGS_FOR_VDECODER;
 #endif
 	if (!keep_y_addr) {
 		keep_y_addr = codec_mm_alloc_for_dma(
@@ -4198,7 +4255,7 @@ static int alloc_keep_buffer(void)
 	if (!keep_u_addr) {
 		keep_u_addr = codec_mm_alloc_for_dma(
 				MEM_NAME,
-				PAGE_ALIGN(U_BUFFER_SIZE)/PAGE_SIZE, 0, 0);
+				PAGE_ALIGN(U_BUFFER_SIZE)/PAGE_SIZE, 0, flags);
 		if (!keep_u_addr) {
 			pr_err("%s: failed to alloc u addr\n", __func__);
 			goto err1;
@@ -4208,7 +4265,7 @@ static int alloc_keep_buffer(void)
 	if (!keep_v_addr) {
 		keep_v_addr = codec_mm_alloc_for_dma(
 				MEM_NAME,
-				PAGE_ALIGN(V_BUFFER_SIZE)/PAGE_SIZE, 0, 0);
+				PAGE_ALIGN(V_BUFFER_SIZE)/PAGE_SIZE, 0, flags);
 		if (!keep_v_addr) {
 			pr_err("%s: failed to alloc v addr\n", __func__);
 			goto err1;
@@ -4254,9 +4311,11 @@ void get_video_keep_buffer(ulong *addr, ulong *phys_addr)
 	}
 
 	if (phys_addr) {
-		phys_addr[0] = 0;
-		phys_addr[1] = 0;
-		phys_addr[2] = 0;
+		if (!keep_y_addr || !keep_u_addr || !keep_v_addr)
+			alloc_keep_buffer();
+		phys_addr[0] = keep_y_addr;
+		phys_addr[1] = keep_u_addr;
+		phys_addr[2] = keep_v_addr;
 	}
 #endif
 	if (debug_flag & DEBUG_FLAG_BLACKOUT) {
@@ -6342,9 +6401,10 @@ static ssize_t fps_info_show(struct class *cla, struct class_attribute *attr,
 static ssize_t video_layer1_state_show(struct class *cla,
 			struct class_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d\n",
+	/*return sprintf(buf, "%d\n",
 				(READ_VCBUS_REG(VPP_MISC + cur_dev->vpp_off)
-				& VPP_VD1_PREBLEND) ? 1 : 0);
+				& VPP_VD1_PREBLEND) ? 1 : 0);*/
+	return sprintf(buf, "%d\n", video_enabled);
 }
 
 void set_video_angle(u32 s_value)
@@ -6403,6 +6463,23 @@ static ssize_t show_first_frame_nosync_store(struct class *cla,
 
 	return count;
 }
+
+static ssize_t video_free_keep_buffer_store(struct class *cla,
+				   struct class_attribute *attr,
+				   const char *buf, size_t count)
+{
+	size_t r;
+	int val;
+	if (debug_flag & DEBUG_FLAG_BLACKOUT)
+		pr_info("%s(%s)\n", __func__, buf);
+	r = sscanf(buf, "%d", &val);
+	if (r != 1)
+		return -EINVAL;
+	if (val == 1)
+		try_free_keep_video();
+	return count;
+}
+
 
 static struct class_attribute amvideo_class_attrs[] = {
 	__ATTR(axis,
@@ -6512,6 +6589,9 @@ static struct class_attribute amvideo_class_attrs[] = {
 	       S_IRUGO | S_IWUSR,
 	       slowsync_repeat_enable_show,
 	       slowsync_repeat_enable_store),
+	__ATTR(free_keep_buffer,
+	       S_IRUGO | S_IWUSR | S_IWGRP, NULL,
+	       video_free_keep_buffer_store),
 #ifdef CONFIG_AM_VOUT
 	__ATTR_RO(device_resolution),
 #endif
@@ -6803,6 +6883,10 @@ static void do_vpu_delay_work(struct work_struct *work)
 	unsigned long flags;
 	unsigned r;
 
+	if (vpu_delay_work_flag & VPU_VIDEO_LAYER1_CHANGED) {
+		vpu_delay_work_flag &= ~VPU_VIDEO_LAYER1_CHANGED;
+		switch_set_state(&video1_state_sdev, !!video_enabled);
+	}
 	spin_lock_irqsave(&delay_work_lock, flags);
 
 	if (vpu_delay_work_flag & VPU_DELAYWORK_VPU_CLK) {
@@ -7107,7 +7191,8 @@ static int __init video_init(void)
 	vf_receiver_init(&video4osd_vf_recv, RECEIVER4OSD_NAME,
 			 &video4osd_vf_receiver, NULL);
 	vf_reg_receiver(&video4osd_vf_recv);
-
+	switch_dev_register(&video1_state_sdev);
+	switch_set_state(&video1_state_sdev, 0);
 #ifdef CONFIG_GE2D_KEEP_FRAME
 	/* video_frame_getmem(); */
 	ge2d_videotask_init();
@@ -7228,6 +7313,13 @@ module_param(new_frame_count, uint, 0664);
 
 MODULE_PARM_DESC(omx_pts, "\n omx_pts\n");
 module_param(omx_pts, uint, 0664);
+
+MODULE_PARM_DESC(omx_pts_interval_upper, "\n omx_pts_interval\n");
+module_param(omx_pts_interval_upper, int, 0664);
+
+MODULE_PARM_DESC(omx_pts_interval_lower, "\n omx_pts_interval\n");
+module_param(omx_pts_interval_lower, int, 0664);
+
 
 #ifdef TV_REVERSE
 module_param(reverse, bool, 0644);

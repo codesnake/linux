@@ -83,7 +83,9 @@ enum pcr_init_priority_e {
 #define PAUSE_CHECK_TIME   2700
 #define PAUSE_RESUME_TIME   18000
 
-static u32 tsync_pcr_recovery_span = 3;
+static u32 tsync_pcr_recovery_span = 10;
+
+
 
 /* the delay from ts demuxer to the amvideo  */
 #define DEFAULT_VSTREAM_DELAY 18000
@@ -388,8 +390,7 @@ void tsync_pcr_pcrscr_set(void)
 	}
 
 	if (first_apts && !(tsync_pcr_inited_flag & complete_init_flag)
-		&& (first_apts < min_checkinpts
-		&& tsync_pcr_inited_mode >= INIT_PRIORITY_AUDIO)) {
+		&& (first_apts < min_checkinpts)) {
 		tsync_pcr_inited_flag |= TSYNC_PCR_INITCHECK_APTS;
 		ref_pcr = first_apts;
 		timestamp_pcrscr_set(ref_pcr);
@@ -412,8 +413,7 @@ void tsync_pcr_pcrscr_set(void)
 	}
 
 	if (first_vpts && !(tsync_pcr_inited_flag & complete_init_flag)
-		&& (first_vpts < min_checkinpts
-		&& tsync_pcr_inited_mode >= INIT_PRIORITY_VIDEO)) {
+		&& (first_vpts < min_checkinpts)) {
 		tsync_pcr_inited_flag |= TSYNC_PCR_INITCHECK_VPTS;
 		ref_pcr = first_vpts - tsync_pcr_ref_latency * 2;
 		timestamp_pcrscr_set(ref_pcr);

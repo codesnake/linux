@@ -47,12 +47,13 @@
 #define MESON_CPU_MAJOR_ID_M8M2		0x1D
 #define MESON_CPU_MAJOR_ID_GXBB		0x1F
 
-
 #define MESON_CPU_VERSION_LVL_MAJOR	0
 #define MESON_CPU_VERSION_LVL_MINOR	1
 #define MESON_CPU_VERSION_LVL_PACK	2
 #define MESON_CPU_VERSION_LVL_MISC	3
-#define MESON_CPU_VERSION_LVL_MAX	MESON_CPU_VERSION_LVL_MISC
+#define MESON_CPU_VERSION_OPS 4
+#define MESON_CPU_VERSION_LVL_MAX	MESON_CPU_VERSION_OPS
+
 int  meson_cpu_version_init(void);
 #ifdef CONFIG_AML_CPU_VERSION
 int get_meson_cpu_version(int level);
@@ -97,9 +98,17 @@ static inline bool is_meson_gxbb_cpu(void)
 	return get_meson_cpu_version(MESON_CPU_VERSION_LVL_MAJOR) ==
 		MESON_CPU_MAJOR_ID_GXBB;
 }
+static inline bool is_meson_gxbbm_cpu(void)
+{
+	return (get_meson_cpu_version(MESON_CPU_VERSION_LVL_MAJOR) ==
+		MESON_CPU_MAJOR_ID_GXBB) &&
+		((get_meson_cpu_version(MESON_CPU_VERSION_OPS) & 0xF0) ==
+		0x20);
+}
 
 static inline u32 get_cpu_type(void)
 {
 	return get_meson_cpu_version(MESON_CPU_VERSION_LVL_MAJOR);
 }
+
 #endif

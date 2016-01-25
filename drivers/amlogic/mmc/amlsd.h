@@ -36,6 +36,14 @@ extern const u8 tuning_blk_pattern_8bit[128];
 
 #define MODULE_NAME		"amlsd"
 
+#define A0_GP_CFG0			(0xc8100240)
+#define A0_GP_CFG2			(0xc8100248)
+#define STORAGE_DEV_NOSET	(0)
+#define STORAGE_DEV_EMMC	(1)
+#define STORAGE_DEV_NAND	(2)
+#define STORAGE_DEV_SPI		(3)
+#define STORAGE_DEV_SDCARD	(4)
+#define STORAGE_DEV_USB		(5)
 #define LDO4DAC_REG_ADDR        0x4f
 #define LDO4DAC_REG_1_8_V       0x24
 #define LDO4DAC_REG_2_8_V       0x4c
@@ -94,7 +102,8 @@ if (ret) \
 } while (0)
 #define sd_emmc_err(fmt, args...) \
 	pr_info("[%s]\033[0;40;32m " fmt "\033[0m", __func__, ##args);
-#define SD_PARSE_U32_PROP(node, prop_name, prop, value) {	\
+
+#define SD_PARSE_U32_PROP_HEX(node, prop_name, prop, value) do {	\
 	if (!of_property_read_u32(node, prop_name, &prop)) {\
 		value = prop;\
 		prop = 0;\
@@ -103,7 +112,18 @@ if (ret) \
 			prop_name, (unsigned int)value);	\
 		} \
 	} \
-}
+} while (0)
+
+#define SD_PARSE_U32_PROP_DEC(node, prop_name, prop, value) do {	\
+	if (!of_property_read_u32(node, prop_name, &prop)) {\
+		value = prop;\
+		prop = 0;\
+		if (DEBUG_SD_OF) {	\
+			pr_info("get property:%25s, value:%d\n",	\
+			prop_name, (unsigned int)value);	\
+		} \
+	} \
+} while (0)
 
 #define SD_PARSE_GPIO_NUM_PROP(node, prop_name, str, gpio_pin) {\
 	if (!of_property_read_string(node, prop_name, &str)) {\

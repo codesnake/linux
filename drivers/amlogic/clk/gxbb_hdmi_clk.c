@@ -24,6 +24,7 @@
 #include <linux/delay.h>
 #include "clk.h"
 #include "clk-pll.h"
+#include <linux/amlogic/cpu_version.h>
 #undef DEBUG
 /* #define DEBUG */
 #ifndef DEBUG
@@ -66,7 +67,6 @@ void hdmi_update_bits(unsigned int reg, unsigned int mask,
 #define	HHI_VID_CLK_CNTL2	(0x65 << 2)
 #define	HHI_VID_CLK_DIV		(0x59 << 2)
 #define	HHI_HDMI_CLK_CNTL	(0x73 << 2)
-
 #define DIV_1    0
 #define DIV_2      1
 #define DIV_3      2

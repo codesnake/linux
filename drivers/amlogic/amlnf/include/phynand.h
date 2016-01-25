@@ -61,16 +61,6 @@ struct nand_cmd_t {
 };
 
 /* read from page0, override default. */
-struct nand_page0_cfg_t {
-	/* 26:pagelist, 24:a2, 23:no_rb, 22:large. 21-0:cmd. */
-	unsigned ext;
-	short id;
-	/* id:0x100 user, max:0 disable. */
-	short max;
-	unsigned char list[NAND_PAGELIST_CNT];
-};
-
-/* read from page0, override default. */
 struct nand_page0_info_t {
 	unsigned nand_read_info;
 	unsigned new_nand_type;
@@ -78,6 +68,18 @@ struct nand_page0_info_t {
 	unsigned secure_block;
 	unsigned ce_mask;
 	unsigned reserved[3];
+};
+
+/* read from page0, override default. */
+struct nand_page0_cfg_t {
+	/* 26:pagelist, 24:a2, 23:no_rb, 22:large. 21-0:cmd. */
+	unsigned ext;
+	short id;
+	/* id:0x100 user, max:0 disable. */
+	short max;
+	unsigned char list[NAND_PAGELIST_CNT];
+	struct nand_cmd_t retry_usr[32];
+	struct nand_page0_info_t nand_page0_info;
 };
 
 union nand_core_clk_t {
@@ -92,7 +94,13 @@ union nand_core_clk_t {
 		unsigned not_used:20;
 	} b;
 };
-
+/**********************storage *********************/
+#define STORAGE_DEV_NOSET	(0)
+#define STORAGE_DEV_EMMC	(1)
+#define STORAGE_DEV_NAND	(2)
+#define STORAGE_DEV_SPI		(3)
+#define STORAGE_DEV_SDCARD	(4)
+#define STORAGE_DEV_USB		(5)
 
 /***************ERROR CODING*******************/
 #define NAND_CHIP_ID_ERR            1
@@ -377,6 +385,7 @@ union nand_core_clk_t {
 #define	NAND_CMD_TOSHIBA_PRE_CON1		0x5c
 #define	NAND_CMD_TOSHIBA_PRE_CON2		0xc5
 #define	NAND_CMD_TOSHIBA_SET_VALUE		0x55
+#define	NAND_CMD_TOSHIBA_BEF_COMMAND0		0xB3
 #define	NAND_CMD_TOSHIBA_BEF_COMMAND1		0x26
 #define	NAND_CMD_TOSHIBA_BEF_COMMAND2		0x5d
 #define NAND_CMD_SAMSUNG_SET_VALUE		0XA1
@@ -909,5 +918,7 @@ extern int aml_nand_update_ubootenv(struct amlnand_chip *aml_chip,
 
 
 extern void amlchip_dumpinfo(struct amlnand_chip *aml_chip);
+#if 0
 extern void dump_pinmux_regs(struct hw_controller *controller);
+#endif
 #endif /* NAND_H_INCLUDED */

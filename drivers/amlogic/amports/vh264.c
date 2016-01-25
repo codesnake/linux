@@ -43,6 +43,7 @@
 #include "amvdec.h"
 #include "vh264.h"
 #include "streambuf.h"
+#include <linux/delay.h>
 
 
 #ifdef CONFIG_GE2D_KEEP_FRAME
@@ -216,6 +217,7 @@ static u32 vh264_no_disp_count;
 static u32 fatal_error_flag;
 static u32 fatal_error_reset;
 static u32 max_refer_buf = 1;
+static u32 decoder_force_reset;
 #if 0
 static u32 vh264_no_disp_wd_count;
 #endif
@@ -246,6 +248,7 @@ static unsigned long pts_missed, pts_hit;
 static uint debugfirmware;
 
 static atomic_t vh264_active = ATOMIC_INIT(0);
+static int vh264_reset;
 static struct work_struct error_wd_work;
 static struct work_struct stream_switching_work;
 
@@ -531,6 +534,56 @@ static void vh264_ppmgr_reset(void)
 	pr_info("vh264dec: vf_ppmgr_reset\n");
 }
 #endif
+static int get_max_dpb_size(int level_idc, int mb_width, int mb_height)
+{
+	int size, r;
+	switch (level_idc) {
+	case 10:
+		r = 1485;
+		break;
+	case 11:
+		r = 3375;
+		break;
+	case 12:
+	case 13:
+	case 20:
+		r = 8910;
+		break;
+	case 21:
+		r = 17820;
+		break;
+	case 22:
+	case 30:
+		r = 30375;
+		break;
+	case 31:
+		r = 67500;
+		break;
+	case 32:
+		r = 76800;
+		break;
+	case 40:
+	case 41:
+	case 42:
+		r = 122880;
+		break;
+	case 50:
+		r = 414000;
+		break;
+	case 51:
+	case 52:
+		r = 691200;
+		break;
+	default:
+		return 0;
+	}
+	size = (mb_width * mb_height + (mb_width * mb_height / 2)) * 256 * 10;
+	r = (r * 1024 + size-1) / size;
+	r = min(r, 16);
+	pr_info("max_dpb %d size:%d\n", r, size);
+	return r;
+}
+
 
 static int vh264_set_params(void)
 {
@@ -541,7 +594,7 @@ static int vh264_set_params(void)
 	unsigned int post_canvas;
 	unsigned int frame_mbs_only_flag;
 	unsigned int chroma_format_idc, chroma444;
-	unsigned int crop_infor, crop_bottom, crop_right;
+	unsigned int crop_infor, crop_bottom, crop_right, level_idc = 0;
 
 	post_canvas = get_post_canvas();
 
@@ -551,6 +604,7 @@ static int vh264_set_params(void)
 	aspect_ratio_info = READ_VREG(AV_SCRATCH_3);
 	num_units_in_tick = READ_VREG(AV_SCRATCH_4);
 	time_scale = READ_VREG(AV_SCRATCH_5);
+	level_idc = READ_VREG(AV_SCRATCH_A);
 	mb_total = (mb_width >> 8) & 0xffff;
 	max_reference_size = (mb_width >> 24) & 0x7f;
 	mb_mv_byte = (mb_width & 0x80000000) ? 24 : 96;
@@ -613,7 +667,7 @@ static int vh264_set_params(void)
 		 frame_mbs_only_flag, crop_bottom, frame_height);
 		pr_info
 		("mb_height %d,crop_right %d, frame_width %d, mb_width %d\n",
-		 mb_height, crop_right, frame_width, mb_height);
+		 mb_height, crop_right, frame_width, mb_width);
 
 		if (frame_height == 1088)
 			frame_height = 1080;
@@ -629,7 +683,7 @@ static int vh264_set_params(void)
 		return -1;
 	}
 
-	max_dpb_size =
+/*	max_dpb_size =
 		(frame_buffer_size - mb_total * 384 * 4 -
 		 mb_total * mb_mv_byte) /
 		(mb_total * 384 + mb_total * mb_mv_byte);
@@ -686,6 +740,22 @@ static int vh264_set_params(void)
 						 mb_mv_byte);
 		}
 	}
+*/
+	/* max_reference_size <= max_dpb_size <= actual_dpb_size */
+	actual_dpb_size = (frame_buffer_size -
+		mb_total * mb_mv_byte *
+		max_reference_size) / (mb_total * 384);
+	actual_dpb_size = min(actual_dpb_size, 24);
+	max_dpb_size = get_max_dpb_size(level_idc, mb_width, mb_height);
+	if (max_dpb_size == 0)
+		max_dpb_size = actual_dpb_size;
+	else
+		max_dpb_size = min(max_dpb_size, actual_dpb_size);
+
+	max_reference_size = min(max_reference_size, actual_dpb_size-1);
+	max_dpb_size = max(max_reference_size, max_dpb_size);
+	max_reference_size++;
+
 
 	if (!(READ_VREG(AV_SCRATCH_F) & 0x1)) {
 		addr = buf_start;
@@ -1208,8 +1278,12 @@ static void vh264_isr(void)
 		(frame_height >= 1000) && (last_interlaced == 0))
 		SET_VREG_MASK(AV_SCRATCH_F, 0x8);
 #endif
-
-	if ((cpu_cmd & 0xff) == 1) {
+	if (decoder_force_reset == 1) {
+		vh264_running = 0;
+		pr_info("force reset decoder !!!\n");
+		schedule_work(&error_wd_work);
+		decoder_force_reset = 0;
+	} else if ((cpu_cmd & 0xff) == 1) {
 		if (unlikely
 			(vh264_running
 			 && (kfifo_len(&newframe_q) != VF_POOL_SIZE))) {
@@ -1746,6 +1820,10 @@ static void vh264_put_timer_func(unsigned long arg)
 	unsigned int reg_val;
 
 	enum receviver_start_e state = RECEIVER_INACTIVE;
+	if (vh264_reset) {
+		pr_info("operation forbidden in timer !\n");
+		goto exit;
+	}
 	if (vf_get_receiver(PROVIDER_NAME)) {
 		state =
 			vf_notify_receiver(PROVIDER_NAME,
@@ -1878,7 +1956,7 @@ static void vh264_put_timer_func(unsigned long arg)
 		vdec_source_changed(VFORMAT_H264,
 			frame_width, frame_height, fps);
 	}
-
+exit:
 	timer->expires = jiffies + PUT_INTERVAL;
 
 	add_timer(timer);
@@ -2069,6 +2147,7 @@ static void vh264_local_init(void)
 	wait_buffer_counter = 0;
 	vh264_no_disp_count = 0;
 	fatal_error_flag = 0;
+	vh264_stream_switching_state = SWITCHING_STATE_OFF;
 #ifdef DEBUG_PTS
 	pts_missed = 0;
 	pts_hit = 0;
@@ -2348,7 +2427,7 @@ static void error_do_work(struct work_struct *work)
 	 */
 	if (atomic_read(&vh264_active)) {
 		amvdec_stop();
-
+		vh264_reset  = 1;
 #ifdef CONFIG_POST_PROCESS_MANAGER
 		vh264_ppmgr_reset();
 #else
@@ -2358,10 +2437,12 @@ static void error_do_work(struct work_struct *work)
 
 		vf_reg_provider(&vh264_vf_prov);
 #endif
-
+		msleep(30);
+		vh264_local_init();
 		vh264_prot_init();
 
 		amvdec_start();
+		vh264_reset  = 0;
 	}
 
 	mutex_unlock(&vh264_mutex);
@@ -2719,6 +2800,9 @@ module_param(fixed_frame_rate_flag, uint, 0664);
 MODULE_PARM_DESC(fixed_frame_rate_flag,
 				 "\n amvdec_h264 fixed_frame_rate_flag\n");
 
+module_param(decoder_force_reset, uint, 0664);
+MODULE_PARM_DESC(decoder_force_reset,
+		"\n amvdec_h264 decoder force reset\n");
 module_init(amvdec_h264_driver_init_module);
 module_exit(amvdec_h264_driver_remove_module);
 
