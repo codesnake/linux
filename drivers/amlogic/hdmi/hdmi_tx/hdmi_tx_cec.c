@@ -441,6 +441,11 @@ static void cec_task(struct work_struct *work)
         /* start timer for late cec rx buffer check */
         hrtimer_start(&cec_late_timer, ktime_set(0, 384*1000*1000), HRTIMER_MODE_REL);
     }
+
+    if (hdmitx_device->cec_func_config & (1 << CEC_FUNC_MSAK))
+    {
+        cec_node_uninit(hdmitx_device);
+    }
 }
 
 /***************************** cec low level code end *****************************/
@@ -742,7 +747,7 @@ static irqreturn_t cec_isr_handler(int irq, void *dev_instance)
     //cec_disable_irq();
     hdmitx_dev_t* hdmitx;
 #if MESON_CPU_TYPE >= MESON_CPU_TYPE_MESON8
-    unsigned int intr_stat = 0;
+    unsigned int intr_stat;
     intr_stat = aml_read_reg32(P_AO_CEC_INTR_STAT);
     if (cec_msg_dbg_en  == 1)
     {
